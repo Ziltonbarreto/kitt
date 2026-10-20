@@ -1,6 +1,7 @@
 from text_utils import normalize
 from datetime import datetime
 from urllib.parse import quote_plus
+from database import most_used_commands, unknown_phrases
 import webbrowser
 import logging
 import random
@@ -307,6 +308,24 @@ def detect_engine(text: str) -> str:
         return CONTEXT["last_engine"]
     return "google"
 
+def tell_stats(text):
+    rows = most_used_commands()
+    if not rows:
+        return "Ainda não tenho dados. Me peça algumas coisas primeiro!"
+    lines = ["Seus comandos mais usados:"]
+    for command, total in rows:
+        lines.append(f"{command}: {total}")
+    return "\n".join(lines)
+
+def tell_unknown(text):
+    rows = unknown_phrases()
+    if not rows:
+        return "Até agora entendi tudo o que você pediu! 😎"
+    lines = ["Frases que não entendi:"]
+    for phrase, total in rows:
+        lines.append(f"{phrase}: {total}x")
+    return "\n".join(lines)
+
 COMMANDS = [
         {
         "name": "kitt",
@@ -367,6 +386,18 @@ COMMANDS = [
             "triggers": set(SEARCH_WORDS),
             "description": "Pesquisa no Google ou no Youtube",
             "function": search_web,
+        },
+        {
+        "name": "stats",
+        "triggers": {"uso", "usado", "estatisticas"},
+        "description": "Mostra os comandos que você mais usa", 
+        "function": tell_stats,
+        },
+        {
+            "name": "unknown",
+            "triggers": {"entendeu"},
+            "description": "Mostra as frases que ele não entendeu",
+            "function": tell_unknown,
         },
         {
             "name": "open",

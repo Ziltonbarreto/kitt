@@ -1,7 +1,24 @@
 from interpreter import identify
 from commands import greet, MORNING_GREETINGS, AFTERNOON_GREETINGS, EVENING_GREETINGS, find_app, find_site, extract_query, build_search_url
 from commands import CONTEXT, detect_engine
+import os
+import tempfile
+import database
 
+def test_database():
+    test_db = os.path.join(tempfile.gettempdir(), "kitt_test.db")
+    if os.path.exists(test_db):
+        os.remove(test_db)
+    database.DB_PATH = test_db
+
+    database.init_db()
+    database.log_event("oi", "greet", True)
+    database.log_event("uai", None, False)
+    database.log_event("uai", None, False)
+
+    result = database.unknown_phrases()
+    assert result == [("uai", 2)], f"Veio: {result} | Banco: {database.DB_PATH}"    
+    assert database.most_used_commands() == [("greet", 1)]
 
 all_greetings = MORNING_GREETINGS + AFTERNOON_GREETINGS + EVENING_GREETINGS
 for _ in range(20):
@@ -58,4 +75,5 @@ assert identify("que dia é hj?")["name"] == "day"
 
 CONTEXT["last_engine"] = None
 
+test_database()
 print("Todos os testes passaram!")

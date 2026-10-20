@@ -1,6 +1,7 @@
 from interpreter import identify
 from commands import BANNER, greet
 from logging.handlers import RotatingFileHandler
+from database import init_db, log_event
 import logging
 
 logging.basicConfig(
@@ -24,6 +25,8 @@ def main() -> None:
     print(BANNER)
     print("KITT: Sistemas online. Digite 'ajuda' para ver o que sei fazer ou 'sair' para encerrar.")
 
+    init_db()
+
     while True:
         try:
             text = input("Você: ").strip()
@@ -42,16 +45,21 @@ def main() -> None:
         command = identify(text)
         if command is None:
             logger.warning(f'Não reconheceu: "{text}"')
+            log_event(text, None, False)
             print("KITT: Desculpe, não reconheci esse comando. Digite 'ajuda'. ")
             continue
 
         logger.info(f'Pedido: "{text}" -> comando {command["name"]}')
+        success = True
         try:
             response = command["function"](text)
         except Exception:
             logger.exception(f'Erro inesperado no comando {command["name"]}')
             response = "Ops, tive um problema interno. Detalhes no kitt.log."    
+            success = False
+
         print("KITT:", response)
+        log_event(text, command["name"], success)
 
 
 if __name__ == "__main__":
