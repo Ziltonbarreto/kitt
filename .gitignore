@@ -1,0 +1,14 @@
+# Histórico e dados pessoais (tudo o que você digita para o KITT)
+kitt.log
+kitt.log.*
+*.db
+
+# Arquivos gerados pelo Python
+__pycache__/
+*.pyc
+
+# Ambiente virtual (Aula 14)
+.venv/
+
+# Chaves e senhas (Fase 6)
+.env

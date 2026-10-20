@@ -1,0 +1,58 @@
+from interpreter import identify
+from commands import BANNER, greet
+from logging.handlers import RotatingFileHandler
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)-7s | %(name)-8s | %(message)s",
+    datefmt="%d/%m/%Y %H:%M:%S",
+    handlers=[
+        RotatingFileHandler(
+            "kitt.log",
+            maxBytes=1_000_000,
+            backupCount=10,
+            encoding="utf-8",
+        )
+    ],
+)
+
+logger = logging.getLogger("main")
+
+def main() -> None:
+    logger.info("KITT")
+    print(BANNER)
+    print("KITT: Sistemas online. Digite 'ajuda' para ver o que sei fazer ou 'sair' para encerrar.")
+
+    while True:
+        try:
+            text = input("Você: ").strip()
+        except (KeyboardInterrupt, EOFError):
+            print("\nKITT: Encerrando. Até mais!")
+            logger.info("KITT encerrado")
+            break
+
+        if not text:
+            continue
+        if text.lower() == "sair":
+            print("KITT: Até mais!")
+            logger.info("KITT encerrado")
+            break
+
+        command = identify(text)
+        if command is None:
+            logger.warning(f'Não reconheceu: "{text}"')
+            print("KITT: Desculpe, não reconheci esse comando. Digite 'ajuda'. ")
+            continue
+
+        logger.info(f'Pedido: "{text}" -> comando {command["name"]}')
+        try:
+            response = command["function"](text)
+        except Exception:
+            logger.exception(f'Erro inesperado no comando {command["name"]}')
+            response = "Ops, tive um problema interno. Detalhes no kitt.log."    
+        print("KITT:", response)
+
+
+if __name__ == "__main__":
+    main()
