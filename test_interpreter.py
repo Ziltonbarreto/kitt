@@ -1,6 +1,7 @@
 from interpreter import identify
 from commands import greet, MORNING_GREETINGS, AFTERNOON_GREETINGS, EVENING_GREETINGS, find_app, find_site, extract_query, build_search_url
-from commands import CONTEXT, detect_engine
+from commands import detect_engine, suggest_alias, confirm
+from commands import SITES, CONTEXT, APPS
 import os
 import tempfile
 import database
@@ -15,6 +16,7 @@ def test_database():
     database.log_event("oi", "greet", True)
     database.log_event("uai", None, False)
     database.log_event("uai", None, False)
+    
 
     result = database.unknown_phrases()
     assert result == [("uai", 2)], f"Veio: {result} | Banco: {database.DB_PATH}"    
@@ -74,6 +76,13 @@ assert identify("quantas hrs?")["name"] == "time"
 assert identify("que dia é hj?")["name"] == "day"
 
 CONTEXT["last_engine"] = None
+
+assert suggest_alias("abre o yotube", SITES + APPS) == ("yotube", "youtube")
+assert suggest_alias("abre o discrd", SITES + APPS) == ("discrd", "discord")
+assert suggest_alias("abre o word", SITES + APPS) is None
+
+CONTEXT["pending_suggestion"] = None
+assert confirm("sim") == "Não tenho nada para confirmar agora."
 
 test_database()
 print("Todos os testes passaram!")

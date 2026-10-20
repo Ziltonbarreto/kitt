@@ -53,3 +53,29 @@ def unknown_phrases(limit=5):
             """,
             (limit,),
         ).fetchall()
+
+def success_rate():
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT COUNT(*), ROUND(AVG(success) * 100) FROM events"
+        ).fetchone()
+
+def today_summary():
+    today = datetime.now().strftime("%Y-%m-%d")
+    with get_connection() as conn:
+        total, first = conn.execute(
+            "SELECT COUNT(*), MIN(created_at) FROM events WHERE created_at >= ?",
+            (today,),
+        ).fetchone()
+        top = conn.execute(
+            """
+            SELECT command, COUNT(*) AS total
+            FROM events
+            WHERE created_at >= ? AND command IS NOT NULL
+            GROUP BY command
+            ORDER BY total DESC, command ASC
+            LIMIT 1
+            """,
+            (today,),
+        ).fetchone()
+    return total, first, top

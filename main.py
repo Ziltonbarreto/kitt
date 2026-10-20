@@ -1,5 +1,5 @@
 from interpreter import identify
-from commands import BANNER, greet
+from commands import BANNER, greet, CONTEXT
 from logging.handlers import RotatingFileHandler
 from database import init_db, log_event
 import logging
@@ -43,10 +43,13 @@ def main() -> None:
             break
 
         command = identify(text)
+        if command is None or command["name"] != "confirm":
+            CONTEXT["pending_suggestion"] = None
+
         if command is None:
             logger.warning(f'Não reconheceu: "{text}"')
             log_event(text, None, False)
-            print("KITT: Desculpe, não reconheci esse comando. Digite 'ajuda'. ")
+            print("KITT: Desculpe, não reconheci esse comando. Digite 'ajuda'.")
             continue
 
         logger.info(f'Pedido: "{text}" -> comando {command["name"]}')

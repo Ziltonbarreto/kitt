@@ -1,7 +1,8 @@
 from text_utils import normalize
 from datetime import datetime
 from urllib.parse import quote_plus
-from database import most_used_commands, unknown_phrases
+from database import most_used_commands, unknown_phrases, success_rate, today_summary
+from difflib import get_close_matches
 import webbrowser
 import logging
 import random
@@ -118,6 +119,11 @@ SITES = [
         "aliases": {"fiap"},
         "url": "https://on.fiap.com.br/local/home",
     },
+    {
+        "name": "Google", 
+        "aliases": {"google"},
+        "url": "https://www.google.com"
+    },
 ]
 
 SEARCH_WORDS = [                 
@@ -141,7 +147,7 @@ SEARCH_ENGINES = {
     },
 }
 
-CONTEXT = {"last_engine": None}
+CONTEXT = {"last_engine": None, "pending_suggestion": None}
 
 def show_help(text: str) -> str:
     lines = ["Eu sei fazer isto:"]
@@ -259,6 +265,11 @@ def open_target(text: str) -> str:
         return f"Abrindo o {app["name"]}!"
     
     logger.warning(f"Pedido para abrir algo fora da lista: {text}")
+    result = suggest_alias(text, SITES + APPS)
+    if result is not None:
+        typed, suggestion = result
+        CONTEXT["pending_suggestion"] = suggestion
+        return f"Não achei '{typed}'. Você quis dizer '{suggestion}'?"
     return "Não posso abrir isso.\n" + list_targets(text)
 
 def find_site(text: str) -> dict | None:
@@ -326,12 +337,54 @@ def tell_unknown(text):
         lines.append(f"{phrase}: {total}x")
     return "\n".join(lines)
 
+def tell_success_rate(text):
+    total, rate = success_rate()
+    if total == 0:
+        return "Ainda não tenho pedidos para calcular"
+    else:
+        return f"Entendi {int(rate)}% dos seus {total} pedidos"
+
+def tell_today(text):
+    total, first, top = today_summary()
+    command, count = top
+    if total == 0:
+        return "Você ainda não me pediu nada!"
+    else:
+        return f"Hoje foram {total} pedidos desde as {first[11:16]}. Seu comando favorito: {command} ({count}x)"
+
+def suggest_alias(text, items):
+    aliases = [alias for item in items for alias in item["aliases"]]
+    for word in normalize(text):
+        matches = get_close_matches(word, aliases, n=1, cutoff=0.75)
+        if matches:
+            return word, matches[0]
+    return None
+
+def confirm(text):
+    suggestion = CONTEXT["pending_suggestion"]
+    if suggestion is None:
+        return "Não tenho nada para confirmar agora."
+    CONTEXT["pending_suggestion"] = None
+    return open_target(f"abre o {suggestion}")
+
 COMMANDS = [
         {
-        "name": "kitt",
-        "triggers": {"quem", "apresente", "apresenta"},
-        "description": "Faz a apresentação do Kitt",
-        "function": introduce_kitt,
+            "name": "confirm", 
+            "triggers": {"sim", "isso", "exatamente", "exato"},
+            "description": "Confirma a última sugestão", 
+            "function": confirm,
+        },
+        {
+            "name": "did",
+            "triggers": {"fiz"},
+            "description": "Mostra oque você fez hoje",
+            "function": tell_today,
+        },
+        {
+            "name": "kitt",
+            "triggers": {"quem", "apresente", "apresenta"},
+            "description": "Faz a apresentação do Kitt",
+            "function": introduce_kitt,
         },
         {
             "name": "help",
@@ -346,10 +399,10 @@ COMMANDS = [
             "function": tell_time,
         },
         {
-        "name": "week",
-        "triggers": {"semana"},
-        "description": "diz o dia da semana",
-        "function": weekday,
+            "name": "week",
+            "triggers": {"semana"},
+            "description": "diz o dia da semana",
+            "function": weekday,
         },
         {
             "name": "day",
@@ -388,16 +441,22 @@ COMMANDS = [
             "function": search_web,
         },
         {
-        "name": "stats",
-        "triggers": {"uso", "usado", "estatisticas"},
-        "description": "Mostra os comandos que você mais usa", 
-        "function": tell_stats,
+            "name": "stats",
+            "triggers": {"uso", "usado", "estatisticas"},
+            "description": "Mostra os comandos que você mais usa", 
+            "function": tell_stats,
         },
         {
             "name": "unknown",
             "triggers": {"entendeu"},
             "description": "Mostra as frases que ele não entendeu",
             "function": tell_unknown,
+        },
+        {
+            "name": "right",
+            "triggers": {"acerta", "acerto", "acertos"},
+            "description": "Mostra quantos acertos ele tem",
+            "function": tell_success_rate,
         },
         {
             "name": "open",
