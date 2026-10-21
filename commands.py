@@ -3,7 +3,7 @@ from datetime import datetime
 from urllib.parse import quote_plus
 from database import most_used_commands, unknown_phrases, success_rate, today_summary
 from difflib import get_close_matches
-from routines import load_routines, invalid_targets
+from routines import load_routines, invalid_targets, find_routine, plan_routine
 import webbrowser
 import logging
 import random
@@ -385,6 +385,26 @@ def tell_routines(text):
 
     return "\n".join(lines)
 
+def run_routine(text):
+    routines = load_routines()
+    if not routines:
+        return "Você ainda não tem rotinas (ou o routines.json tem erro)."
+
+    name = find_routine(text, routines)
+    if name is None:
+        names = ", ".join(routines)
+        return f"Qual modo? Eu conheço: {names}"
+
+    valid, skipped = plan_routine(routines[name], KNOWN_ALIASES)
+
+    results = [open_target(target) for target in valid]
+    for target in skipped:
+        logger.warning(f'Rotina "{name}": apelido desconhecido "{target}"')
+        results.append(f'⚠️ Pulei "{target}": não está na minha lista.')
+
+    logger.info(f"Rotina executada: {name}")
+    return f"Ativando o modo {name}!\n " + "\n ".join(results)
+
 COMMANDS = [
         {
             "name": "confirm", 
@@ -481,6 +501,12 @@ COMMANDS = [
             "triggers": {"rotina", "rotinas"},
             "description": "Mostra as rotinas suas",
             "function": tell_routines,
+        },
+        {
+            "name": "routine", 
+            "triggers": {"modo"},
+            "description": "Executa uma rotina (ex.: modo estudo)", 
+            "function": run_routine,
         },
         {
             "name": "open",

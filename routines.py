@@ -1,3 +1,4 @@
+from text_utils import normalize
 import json
 import logging
 import os
@@ -25,3 +26,20 @@ def invalid_targets(routines, known_aliases):
             if target not in known_aliases:
                 problems.append((name, target))
     return problems
+
+def find_routine(text, routines):
+    words = set(normalize(text))
+    for name in routines:
+        if name in words:
+            return name
+    return None
+
+def plan_routine(routine, known_aliases):
+    valid = []
+    skipped = []
+    for target in routine.get("open", []):
+        if target in known_aliases:
+            valid.append(target)
+        else:
+            skipped.append(target)
+    return valid, skipped

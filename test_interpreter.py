@@ -2,7 +2,7 @@ from interpreter import identify
 from commands import greet, MORNING_GREETINGS, AFTERNOON_GREETINGS, EVENING_GREETINGS, find_app, find_site, extract_query, build_search_url
 from commands import detect_engine, suggest_alias, confirm
 from commands import SITES, CONTEXT, APPS
-from routines import load_routines, invalid_targets
+from routines import load_routines, invalid_targets, find_routine, plan_routine
 import os
 import tempfile
 import database
@@ -87,6 +87,12 @@ assert confirm("sim") == "Não tenho nada para confirmar agora."
 
 assert invalid_targets({"x": {"open": ["vscod", "github"]}}, {"github"}) == [("x", "vscod")]
 assert invalid_targets({"y": {"description": "sem open"}}, {"github"}) == []
+
+assert find_routine("kitt, modo estudo", {"estudo": {}, "dev": {}}) == "estudo"
+assert find_routine("modo DEV", {"estudo": {}, "dev": {}}) == "dev"
+assert find_routine("modo festa", {"estudo": {}, "dev": {}}) is None
+assert plan_routine({"open": ["fiap", "vscod"]}, {"fiap"}) == (["fiap"], ["vscod"])
+assert plan_routine({}, {"fiap"}) == ([], [])
 
 test_database()
 print("Todos os testes passaram!")
