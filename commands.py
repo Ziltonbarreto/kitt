@@ -3,6 +3,7 @@ from datetime import datetime
 from urllib.parse import quote_plus
 from database import most_used_commands, unknown_phrases, success_rate, today_summary
 from difflib import get_close_matches
+from routines import load_routines, invalid_targets
 import webbrowser
 import logging
 import random
@@ -89,7 +90,7 @@ APPS = [
     {
         "name": "Claude",
         "aliases": {"claude"},
-        "path": r"C:\Users\User\Documents\kitt\atalhos\Claude.lnk",
+        "path": r"shell:AppsFolder\Claude_pzs8sxrjxfjjc!Claude",
     },
 ]
 
@@ -148,6 +149,8 @@ SEARCH_ENGINES = {
 }
 
 CONTEXT = {"last_engine": None, "pending_suggestion": None}
+
+KNOWN_ALIASES = {alias for item in SITES + APPS for alias in item["aliases"]}
 
 def show_help(text: str) -> str:
     lines = ["Eu sei fazer isto:"]
@@ -367,6 +370,21 @@ def confirm(text):
     CONTEXT["pending_suggestion"] = None
     return open_target(f"abre o {suggestion}")
 
+def tell_routines(text):
+    routines = load_routines()
+    if not routines:
+        return "Você ainda não tem rotinas (ou o routines.json tem erro)."
+
+    lines = ["Suas rotinas:"]
+    for name, routine in routines.items():
+        lines.append(f" {name} -> {routine.get('description', 'sem descrição')}")
+
+    problems = invalid_targets(routines, KNOWN_ALIASES)
+    for name, target in problems:
+        lines.append(f"⚠️ Na rotina '{name}', não conheço '{target}'.")
+
+    return "\n".join(lines)
+
 COMMANDS = [
         {
             "name": "confirm", 
@@ -457,6 +475,12 @@ COMMANDS = [
             "triggers": {"acerta", "acerto", "acertos"},
             "description": "Mostra quantos acertos ele tem",
             "function": tell_success_rate,
+        },
+        {
+            "name": "routines",
+            "triggers": {"rotina", "rotinas"},
+            "description": "Mostra as rotinas suas",
+            "function": tell_routines,
         },
         {
             "name": "open",

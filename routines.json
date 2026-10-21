@@ -1,0 +1,10 @@
+{
+    "estudo": {
+        "description": "Abre tudo para estudar",
+        "open": ["fiap", "notion", "spotify"]
+    },
+    "dev": {
+        "description": "Abre o ambiente de programação",
+        "open": ["vscode", "github", "claude"]
+    }
+}
