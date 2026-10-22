@@ -739,7 +739,7 @@ COMMANDS = [
         },
         {
             "name": "greet",
-            "triggers": {"oi", "ola", "bom"},
+            "triggers": {"oi", "ola", "bom", "eae", "eai"},
             "description": "diz oi",
             "function": greet,
         },
