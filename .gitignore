@@ -12,3 +12,4 @@ __pycache__/
 
 # Chaves e senhas (Fase 6)
 .env
+.cache
