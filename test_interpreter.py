@@ -13,6 +13,7 @@ from projects import find_project
 from commands import parse_duration, format_duration, pomodoro_durations
 from commands import extract_note
 from commands import bytes_to_gb
+from weather import describe_code, format_weather
 
 assert bytes_to_gb(1024 ** 3) == 1
 assert bytes_to_gb(512 * 1024 ** 2) == 0.5
@@ -50,6 +51,15 @@ assert strip_wake_word("KITT, que horas são?") == "que horas são?"
 assert strip_wake_word("vou mexer no kitt") == "vou mexer no kitt"
 assert strip_wake_word("kitt") == ""
 
+from media import find_media_action
+
+assert find_media_action("pausa a música")[0] == "playpause"
+assert find_media_action("próxima música")[0] == "nexttrack"
+assert find_media_action("aumenta o volume") == ("volumeup", 5, "🔊 Aumentei o volume.")
+assert find_media_action("faz um café") is None
+assert identify("aumenta o volume")["name"] == "media"
+
+
 def test_database():
     test_db = os.path.join(tempfile.gettempdir(), "kitt_test.db")
     if os.path.exists(test_db):
@@ -78,6 +88,11 @@ def test_database():
 
     database.log_event("Modo ESTUDO", "routine", True)
     assert database.favorite_hour("estudo") == datetime.now().strftime("%H")
+    
+    rows = database.last_events(2)
+    assert len(rows) == 2
+    assert rows[0][1] == "Modo ESTUDO"
+
 
 all_greetings = MORNING_GREETINGS + AFTERNOON_GREETINGS + EVENING_GREETINGS
 for _ in range(20):
@@ -159,6 +174,26 @@ assert find_routine("modo DEV", {"estudo": {}, "dev": {}}) == "dev"
 assert find_routine("modo festa", {"estudo": {}, "dev": {}}) is None
 assert plan_routine({"open": ["fiap", "vscod"]}, {"fiap"}) == (["fiap"], ["vscod"])
 assert plan_routine({}, {"fiap"}) == ([], [])
+
+assert describe_code(63) == "chuva"
+assert describe_code(12345) == "tempo indefinido"
+
+fake = {
+    "current": {"temperature_2m": 28.3, "weather_code": 1},
+    "daily": {
+        "temperature_2m_min": [19.2],
+        "temperature_2m_max": [33.1],
+        "precipitation_probability_max": [70],
+    },
+}
+result = format_weather(fake)
+assert "28°C, predominantemente limpo" in result
+assert "☔ Leva guarda-chuva!" in result
+assert "🥵 Vai fazer calor" in result
+
+assert identify("vai chover hoje?")["name"] == "weather"
+assert identify("há quanto tempo você está ligado?")["name"] == "uptime"
+
 
 test_database()
 print("Todos os testes passaram!")

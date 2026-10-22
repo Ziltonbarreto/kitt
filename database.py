@@ -103,3 +103,10 @@ def favorite_hour(routine_name, min_uses=3):
     if row is None or row[1] < min_uses:
         return None
     return row[0]
+
+def last_events(limit=5):
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT created_at, text, success FROM events ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()

@@ -2,11 +2,13 @@ import subprocess
 from datetime import datetime, timedelta
 from text_utils import normalize
 from urllib.parse import quote_plus
-from database import favorite_hour, most_used_commands, unknown_phrases, success_rate, today_summary
+from database import favorite_hour, most_used_commands, unknown_phrases, success_rate, today_summary, last_events
 from difflib import get_close_matches
 from routines import load_routines, invalid_targets, find_routine, plan_routine
 from projects import load_projects, find_project
+from weather import fetch_forecast, format_weather
 from pathlib import Path
+from media import control_media
 import psutil
 import webbrowser
 import threading
@@ -24,7 +26,7 @@ BANNER = """
 ██╔═██╗ ██║   ██║      ██║
 ██║  ██╗██║   ██║      ██║
 ╚═╝  ╚═╝╚═╝   ╚═╝      ╚═╝
-Assistente pessoal • v0.1
+Assistente pessoal • v0.3
 """
 
 ASSISTANT_NAME = "KITT"
@@ -378,16 +380,16 @@ def introduce_kitt(text: str) -> str:
         "\n"
         "O que eu já faço:\n"
         "  • Digo a hora, a data e o dia da semana\n"
-        "  • Abro seus programas e sites favoritos\n"
+        "  • Abro programas, sites, projetos e rotinas (modo estudo, modo dev)\n"
         "  • Pesquiso no Google e no YouTube\n"
-        "  • Cumprimento, conto há quanto tempo estou ligado e limpo a tela\n"
+        "  • Timer, Pomodoro e notas rápidas\n"
+        "  • Clima de Montes Claros, status do PC e controle de música\n"
+        "  • Lembro do que você me pediu e sugiro rotinas no seu horário\n"
         "\n"
         "O que vem por aí:\n"
-        "  • Rotinas, timer e Pomodoro\n"
-        "  • Clima, notas rápidas e status do PC\n"
-        "  • Voz, inteligência artificial e, um dia, a casa inteira\n"
-        "\n"
-        "Digite 'ajuda' para ver todos os comandos. Bora acelerar? 🏁"
+        "  • Uma interface no navegador\n"
+        "  • Voz e inteligência artificial\n"
+        "  • E, um dia, a casa inteira\n"
     )
 
 def tell_uptime(text: str) -> str:
@@ -664,6 +666,24 @@ def work_on_project(text):
     message = project.get("message", f"Bora trabalhar no {project['name']}!")
     return message + "\n  " + "\n  ".join(results)
 
+def tell_weather(text):
+    data = fetch_forecast()
+    if data is None:
+        return "Não consegui ver o clima agora. Confere se a internet está funcionando."
+    return format_weather(data)
+
+def tell_history(text):
+    rows = last_events()
+    if not rows:
+        return "Você ainda não me pediu nada"
+
+    lines = ["Seus últimos pedidos:"]
+    for created_at, phrase, success in rows:
+        icon = "✅" if success else "❌"
+        lines.append(f"  {created_at[11:16]}  {icon} {phrase}")
+    return "\n".join(lines)
+
+
 COMMANDS = [
         {
             "name": "confirm", 
@@ -730,6 +750,12 @@ COMMANDS = [
             "triggers": {"notas"},
             "description": "Mostra ou apaga suas notas",
             "function": list_notes,
+        },
+        {
+            "name": "weather",
+            "triggers": {"clima", "chover", "chuva", "temperatura", "calor", "frio"},
+            "description": "Clima de agora e previsão de hoje em Montes Claros",
+            "function": tell_weather,
         },
         {
             "name": "day",
@@ -810,6 +836,18 @@ COMMANDS = [
             "function": pc_status,
         },
         {
+            "name": "media",
+            "triggers": {"musica", "volume", "som", "faixa", "mudo", "muta"},
+            "description": "Controla música e volume (ex.: pausa a música, aumenta o volume)",
+            "function": control_media,
+        },
+        {
+            "name": "history",
+            "triggers": {"pedi", "historico"},
+            "description": "Mostra seus últimos pedidos",
+            "function": tell_history,
+        },
+            {
             "name": "open",
             "triggers": {"abre", "abrir", "abra"},
             "description": "abre um programa ou site permitido",
