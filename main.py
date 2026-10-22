@@ -1,8 +1,11 @@
-from interpreter import identify, strip_wake_word
-from commands import BANNER, greet, CONTEXT, routine_suggestion
+from core.interpreter import identify, strip_wake_word
+from skills.basics import BANNER
+from core.context import CONTEXT
+from skills.routines import routine_suggestion
 from logging.handlers import RotatingFileHandler
-from database import init_db, log_event
+from core.database import init_db, log_event
 import logging
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -18,7 +21,9 @@ logging.basicConfig(
     ],
 )
 
+
 logger = logging.getLogger("main")
+
 
 def main() -> None:
     logger.info("KITT iniciado")

@@ -1,19 +1,28 @@
-from interpreter import identify
-from commands import greet, MORNING_GREETINGS, AFTERNOON_GREETINGS, EVENING_GREETINGS, find_app, find_site, extract_query, build_search_url
-from commands import detect_engine, suggest_alias, confirm, cancel, tell_today
+from core.interpreter import identify
+from skills.basics import greet, MORNING_GREETINGS, AFTERNOON_GREETINGS, EVENING_GREETINGS
+from skills.apps import find_app, find_site
+from skills.search import extract_query, build_search_url
+from skills.search import detect_engine
+from skills.apps import suggest_alias
+from core.context import confirm, cancel
+from skills.history import tell_today
 from datetime import timedelta
-from commands import SITES, CONTEXT, APPS
-from routines import load_routines, invalid_targets, find_routine, plan_routine
+from skills.apps import SITES, APPS
+from core.context import CONTEXT
+from skills.routines import load_routines, invalid_targets, find_routine, plan_routine
 from datetime import datetime
 import os
 import tempfile
-import database
-from projects import find_project
+from core import database
+from skills.projects import find_project
 
-from commands import parse_duration, format_duration, pomodoro_durations
-from commands import extract_note
-from commands import bytes_to_gb
-from weather import describe_code, format_weather
+from skills.timers import parse_duration, format_duration, pomodoro_durations
+from skills.notes import extract_note
+from skills.system import bytes_to_gb
+from skills.weather import describe_code, format_weather
+from integrations.spotify.parsing import extract_track_query, format_track
+
+
 
 assert bytes_to_gb(1024 ** 3) == 1
 assert bytes_to_gb(512 * 1024 ** 2) == 0.5
@@ -44,20 +53,57 @@ assert find_project("vou mexer no Fiscaliza", projects) == "fiscaliza"
 assert find_project("bora estudar next", projects) == "next"
 assert find_project("vou mexer no hackgov", projects) is None
 
-from interpreter import strip_wake_word
+from core.interpreter import strip_wake_word
 
 assert strip_wake_word("kitt vou mexer no fiscaliza") == "vou mexer no fiscaliza"
 assert strip_wake_word("KITT, que horas são?") == "que horas são?"
 assert strip_wake_word("vou mexer no kitt") == "vou mexer no kitt"
 assert strip_wake_word("kitt") == ""
 
-from media import find_media_action
+from skills.media import find_media_action
 
 assert find_media_action("pausa a música")[0] == "playpause"
 assert find_media_action("próxima música")[0] == "nexttrack"
 assert find_media_action("aumenta o volume") == ("volumeup", 5, "🔊 Aumentei o volume.")
 assert find_media_action("faz um café") is None
 assert identify("aumenta o volume")["name"] == "media"
+from integrations.spotify.parsing import format_playback, playlists_from_response, format_playlists
+
+from integrations.spotify.parsing import extract_playlist_query, match_playlists
+
+mine = [
+    ("Bruno Mars - As Melhores", "uri1"),
+    ("Lofi Study 2026", "uri2"),
+    ("MODÃO SERTANEJO RAIZ - SÓ AS MELHORES 🎵", "uri3"),
+    ("SERTANEJO ROMÂNTICO 💗(As Melhores  Antigo a 2026)", "uri4"),
+    ("The Beatles: Best Of The Best", "uri5"),
+]
+
+assert extract_playlist_query("kitt toca a playlist do bruno mars") == ["bruno", "mars"]
+assert match_playlists(["bruno", "mars"], mine) == [("Bruno Mars - As Melhores", "uri1")]
+assert match_playlists(["lofi"], mine) == [("Lofi Study 2026", "uri2")]
+assert match_playlists(["modao"], mine) == [("MODÃO SERTANEJO RAIZ - SÓ AS MELHORES 🎵", "uri3")]
+assert len(match_playlists(["sertanejo"], mine)) == 2
+assert match_playlists(["funk"], mine) == []
+assert identify("toca a playlist lofi")["name"] == "spotify_play"
+
+playing = {
+    "is_playing": True,
+    "device": {"name": "PC"},
+    "item": {"name": "Yellow", "artists": [{"name": "Coldplay"}]},
+}
+assert format_playback(playing) == "▶️ Tocando: Yellow — Coldplay (em PC)"
+assert format_playback(None) == "Nada tocando no Spotify agora."
+
+podcast = {"is_playing": False, "device": {"name": "PC"}, "item": {"name": "Episódio 42"}}
+assert format_playback(podcast) == "⏸️ Pausado: Episódio 42 (em PC)"
+
+fake_response = {"items": [{"name": "Estudo", "uri": "spotify:playlist:abc"}, None]}
+assert playlists_from_response(fake_response) == [("Estudo", "spotify:playlist:abc")]
+assert format_playlists([("Estudo", "x"), ("Treino", "y")]) == "Suas playlists:\n  1. Estudo\n  2. Treino"
+
+assert identify("qual música está tocando?")["name"] == "spotify_now"
+assert identify("minhas playlists")["name"] == "spotify_playlists"
 
 
 def test_database():
@@ -194,6 +240,37 @@ assert "🥵 Vai fazer calor" in result
 assert identify("vai chover hoje?")["name"] == "weather"
 assert identify("há quanto tempo você está ligado?")["name"] == "uptime"
 
+
+assert extract_track_query("toca yellow do coldplay no spotify") == "yellow do coldplay"
+assert extract_track_query("kitt, tocar a música bohemian rhapsody no spotify") == "bohemian rhapsody"
+assert extract_track_query("abre o spotify") == ""
+assert format_track({"name": "Yellow", "artists": [{"name": "Coldplay"}]}) == "Yellow — Coldplay"
+assert identify("toca yellow no spotify")["name"] == "spotify_track"
+assert identify("toca a playlist lofi no spotify")["name"] == "spotify_play"
+assert identify("o que está tocando no spotify?")["name"] == "spotify_now"
+
+# ---- Volume do Spotify e do PC (reorganização) ----
+from skills.media import parse_volume_request
+from integrations.spotify.player import compute_new_volume
+
+assert parse_volume_request("aumenta o volume") == ("auto", "up", 10)
+assert parse_volume_request("abaixa o volume do spotify") == ("spotify", "down", 10)
+assert parse_volume_request("aumenta o volume em 31") == ("auto", "up", 31)
+assert parse_volume_request("volume do spotify em 29") == ("spotify", "set", 29)
+assert parse_volume_request("aumenta o volume para 40") == ("auto", "set", 40)
+assert parse_volume_request("aumenta o volume do pc") == ("pc", "up", 10)
+assert parse_volume_request("volume 150") == ("auto", "set", 100)
+assert parse_volume_request("volume") == ("auto", None, None)
+
+assert compute_new_volume(50, "up", 31) == 81
+assert compute_new_volume(50, "down", 29) == 21
+assert compute_new_volume(90, "up", 20) == 100
+assert compute_new_volume(10, "down", 30) == 0
+assert compute_new_volume(70, "set", 29) == 29
+
+assert identify("aumenta o volume do pc")["name"] == "media"
+assert identify("volume do spotify em 30")["name"] == "spotify_track"
+assert identify("como está o pc?")["name"] == "pc_status"
 
 test_database()
 print("Todos os testes passaram!")

@@ -1,22 +1,34 @@
+"""Login no Spotify (OAuth). O segredo fica no .env e o token no .cache, fora do Git."""
 import logging
-from pathlib import Path
 
+import requests
 import spotipy
 from dotenv import load_dotenv
+from spotipy.exceptions import SpotifyException
 from spotipy.oauth2 import SpotifyOAuth
 
-load_dotenv()
+from core.paths import PROJECT_ROOT
+
+load_dotenv(PROJECT_ROOT / ".env")
+
+CACHE_PATH = PROJECT_ROOT / ".cache"
+
 
 logger = logging.getLogger("spotify")
 
-CACHE_PATH = Path(__file__).parent / ".cache"
+
 SCOPES = (
     "user-read-playback-state "
     "user-modify-playback-state "
     "user-read-currently-playing "
     "playlist-read-private"
 )
+
+
 SPOTIFY_STATE = {"client": None}
+
+
+SPOTIFY_ERRORS = (SpotifyException, requests.RequestException)
 
 
 def get_spotify():

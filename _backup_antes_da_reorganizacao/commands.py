@@ -7,8 +7,11 @@ from difflib import get_close_matches
 from routines import load_routines, invalid_targets, find_routine, plan_routine
 from projects import load_projects, find_project
 from weather import fetch_forecast, format_weather
+from spotipy.exceptions import SpotifyException
+from spotify_client import extract_track_query, format_track, get_spotify, format_playback, playlists_from_response, format_playlists, extract_playlist_query,  match_playlists, pick_device, play_and_confirm
 from pathlib import Path
-from media import control_media
+from media import control_media, find_media_action
+import requests
 import psutil
 import webbrowser
 import threading
@@ -175,6 +178,131 @@ POMODORO_STATE = {"timer": None}
 
 
 MAX_TIMER_SECONDS = 24 * 3600
+
+SPOTIFY_ERRORS = (SpotifyException, requests.RequestException)
+
+
+def spotify_now(text):
+    try:
+        playback = get_spotify().current_playback()
+    except SPOTIFY_ERRORS as error:
+        logger.error(f"Spotify (tocando agora): {error}")
+        return "Não consegui falar com o Spotify agora."
+    return format_playback(playback)
+
+
+def spotify_playlists(text):
+    try:
+        response = get_spotify().current_user_playlists(limit=50)
+    except SPOTIFY_ERRORS as error:
+        logger.error(f"Spotify (playlists): {error}")
+        return "Não consegui buscar suas playlists agora."
+    return format_playlists(playlists_from_response(response))
+
+def spotify_play_playlist(text):
+    query = extract_playlist_query(text)
+    if not query:
+        return "Qual playlist? Diga 'minhas playlists' para ver a lista."
+
+    try:
+        sp = get_spotify()
+        playlists = playlists_from_response(sp.current_user_playlists(limit=50))
+        matches = match_playlists(query, playlists)
+        if not matches:
+            return f'Não achei nenhuma playlist com "{" ".join(query)}".'
+        if len(matches) > 1:
+            options = "\n".join(f"  • {name}" for name, _ in matches)
+            return f"Achei mais de uma:\n{options}\nQual delas? Fala uma palavra a mais."
+
+        name, uri = matches[0]
+        device = pick_device(sp)
+        if device is None:
+            open_target("spotify")
+            return "O Spotify não estava aberto. Abri agora: me pede de novo em alguns segundos."
+
+        playing = play_and_confirm(sp, device, context_uri=uri)
+    except SPOTIFY_ERRORS as error:
+        logger.error(f"Spotify (tocar playlist): {error}")
+        return "Não consegui tocar no Spotify agora."
+
+    if not playing:
+        logger.warning(f"Spotify aceitou o play da playlist {name}, mas não começou a tocar")
+        return "Mandei tocar, mas o Spotify não começou. Dá um play manual uma vez e me pede de novo?"
+
+    logger.info(f"Spotify: tocando a playlist {name}")
+    return f"▶️ Tocando a playlist {name}."
+
+def spotify_play_track(text):
+    query = extract_track_query(text)
+    if query in {"", "a musica", "a música", "musica", "música"}:
+        return smart_media(text)
+
+    try:
+        sp = get_spotify()
+        results = sp.search(q=query, type="track", limit=3, market="BR")
+        tracks = results.get("tracks", {}).get("items", [])
+        if not tracks:
+            return f'Não achei nenhuma música com "{query}".'
+
+        device = pick_device(sp)
+        if device is None:
+            open_target("spotify")
+            return "O Spotify não estava aberto. Abri agora: me pede de novo em alguns segundos."
+
+        track = tracks[0]
+        playing = play_and_confirm(
+            sp,
+            device,
+            context_uri=track["album"]["uri"],
+            offset={"uri": track["uri"]},
+        )
+    except SPOTIFY_ERRORS as error:
+        logger.error(f"Spotify (tocar música): {error}")
+        return "Não consegui tocar no Spotify agora."
+
+    if not playing:
+        logger.warning(f"Spotify aceitou o play de {format_track(track)}, mas não começou a tocar")
+        return "Mandei tocar, mas o Spotify não começou. Dá um play manual uma vez e me pede de novo?"
+
+    logger.info(f"Spotify: tocando {format_track(track)}")
+    response = f"▶️ Tocando {format_track(track)}."
+    chosen = format_track(track)
+    others = []
+    for other in tracks[1:]:
+        label = format_track(other)
+        if label != chosen and label not in others:
+            others.append(label)
+    if others:
+        response += "\n  Não era essa? Também achei: " + " | ".join(others)
+    return response
+
+def smart_media(text):
+    action = find_media_action(text)
+    if action is not None and action[0] in ("playpause", "nexttrack", "prevtrack"):
+        try:
+            sp = get_spotify()
+            playback = sp.current_playback()
+            if playback:
+                key = action[0]
+                if key == "nexttrack":
+                    sp.next_track()
+                    return "⏭️ Próxima faixa."
+                if key == "prevtrack":
+                    sp.previous_track()
+                    return "⏮️ Faixa anterior."
+                wants_pause = "pausa" in normalize(text) or "pausar" in normalize(text)
+                if playback.get("is_playing"):
+                    if not wants_pause and normalize(text)[0] in ("toca", "tocar", "continua"):
+                        return "▶️ Já está tocando."
+                    sp.pause_playback()
+                    return "⏸️ Pausei a música."
+                if wants_pause:
+                    return "⏸️ Já está pausada."
+                sp.start_playback()
+                return "▶️ Continuando a música."
+        except SPOTIFY_ERRORS as error:
+            logger.warning(f"Spotify indisponível, usando as teclas: {error}")
+    return control_media(text)
 
 def bytes_to_gb(value):
     return value / 1024 ** 3
@@ -836,10 +964,34 @@ COMMANDS = [
             "function": pc_status,
         },
         {
+            "name": "spotify_now",
+            "triggers": {"tocando"},
+            "description": "Mostra o que está tocando no Spotify",
+            "function": spotify_now,
+        },
+        {
+            "name": "spotify_play",
+            "triggers": {"playlist"},
+            "description": "Toca uma playlist do Spotify (ex.: toca a playlist lofi)",
+            "function": spotify_play_playlist,
+        },
+        {
+            "name": "spotify_playlists",
+            "triggers": {"playlists"},
+            "description": "Lista suas playlists do Spotify",
+            "function": spotify_playlists,
+        },
+        {
+            "name": "spotify_track",
+            "triggers": {"spotify", "toca", "tocar", "toque", "coloca", "bota"},
+            "description": "Busca e toca uma música (ex.: toca yellow no spotify)",
+            "function": spotify_play_track,
+        },
+        {
             "name": "media",
             "triggers": {"musica", "volume", "som", "faixa", "mudo", "muta"},
             "description": "Controla música e volume (ex.: pausa a música, aumenta o volume)",
-            "function": control_media,
+            "function": smart_media,
         },
         {
             "name": "history",
