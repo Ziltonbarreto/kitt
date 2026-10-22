@@ -1,10 +1,17 @@
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime
 
 DB_PATH = "kitt.db"
 
+@contextmanager
 def get_connection():
-    return sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        with conn:
+            yield conn
+    finally:
+        conn.close()
 
 def init_db():
     with get_connection() as conn:
@@ -79,3 +86,20 @@ def today_summary():
             (today,),
         ).fetchone()
     return total, first, top
+
+def favorite_hour(routine_name, min_uses=3):
+    with get_connection() as conn:
+        row = conn.execute(
+            """
+            SELECT substr(created_at, 12, 2) AS hour, COUNT(*) AS total
+            FROM events
+            WHERE command = 'routine' AND success = 1 AND text LIKE ?
+            GROUP BY hour
+            ORDER BY total DESC, hour ASC
+            LIMIT 1
+            """,
+            (f"%{routine_name}%",),
+        ).fetchone()
+    if row is None or row[1] < min_uses:
+        return None
+    return row[0]

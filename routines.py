@@ -21,8 +21,8 @@ def load_routines():
 
 def invalid_targets(routines, known_aliases):
     problems = []
-    for name, routines in routines.items():
-        for target in routines.get("open", []):
+    for name, routine in routines.items():
+        for target in routine.get("open", []):
             if target not in known_aliases:
                 problems.append((name, target))
     return problems

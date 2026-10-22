@@ -1,0 +1,23 @@
+{
+    "kitt": {
+        "name": "KITT",
+        "aliases": ["kitt", "assistente"],
+        "folder": "C:\\Users\\User\\Documents\\kitt",
+        "message": "Bora evoluir o KITT! 🤖",
+        "open": ["github", "claude", "notion"]
+    },
+    "next": {
+        "name": "Estudos Next",
+        "aliases": ["next", "nextjs"],
+        "folder": "C:\\Users\\User\\Desktop\\estudos next",
+        "message": "Hora de estudar Next.js! ⚛️",
+        "open": ["claude"]
+    },
+    "fiscaliza": {
+        "name": "Fiscaliza Volpe",
+        "aliases": ["fiscaliza", "volpe"],
+        "folder": "C:\\Users\\User\\Desktop\\full stack\\Fiscaliza_volpe-main",
+        "message": "Bora trabalhar no Fiscaliza Volpe! 🏛️",
+        "open": ["github"]
+    }
+}

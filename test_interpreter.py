@@ -1,11 +1,54 @@
 from interpreter import identify
 from commands import greet, MORNING_GREETINGS, AFTERNOON_GREETINGS, EVENING_GREETINGS, find_app, find_site, extract_query, build_search_url
-from commands import detect_engine, suggest_alias, confirm
+from commands import detect_engine, suggest_alias, confirm, cancel, tell_today
+from datetime import timedelta
 from commands import SITES, CONTEXT, APPS
 from routines import load_routines, invalid_targets, find_routine, plan_routine
+from datetime import datetime
 import os
 import tempfile
 import database
+from projects import find_project
+
+from commands import parse_duration, format_duration, pomodoro_durations
+from commands import extract_note
+from commands import bytes_to_gb
+
+assert bytes_to_gb(1024 ** 3) == 1
+assert bytes_to_gb(512 * 1024 ** 2) == 0.5
+assert identify("como está o pc?")["name"] == "pc_status"
+
+assert extract_note("anota: comprar cabo USB-C") == "comprar cabo USB-C"
+assert extract_note("kitt anotar estudar SQL") == "estudar SQL"
+assert extract_note("anote") == ""
+
+assert pomodoro_durations("pomodoro") == (1500, 300)
+assert pomodoro_durations("pomodoro de 10 segundos") == (10, 2)
+assert pomodoro_durations("pomodoro de 3 segundos") == (3, 1)
+
+assert parse_duration("me avisa em 10 segundos") == 10
+assert parse_duration("timer de 5 minutos") == 300
+assert parse_duration("me avisa em 1 hora") == 3600
+assert parse_duration("me avisa daqui a pouco") is None
+assert parse_duration("me avisa em 10") is None
+
+assert format_duration(300) == "5min"
+assert format_duration(3725) == "1h 2min 5s"
+assert format_duration(10) == "10s"
+
+assert identify("me avisa em 2 horas")["name"] == "timer"
+
+projects = {"fiscaliza": {"aliases": ["fiscaliza", "volpe"]}, "next": {"aliases": ["next"]}}
+assert find_project("vou mexer no Fiscaliza", projects) == "fiscaliza"
+assert find_project("bora estudar next", projects) == "next"
+assert find_project("vou mexer no hackgov", projects) is None
+
+from interpreter import strip_wake_word
+
+assert strip_wake_word("kitt vou mexer no fiscaliza") == "vou mexer no fiscaliza"
+assert strip_wake_word("KITT, que horas são?") == "que horas são?"
+assert strip_wake_word("vou mexer no kitt") == "vou mexer no kitt"
+assert strip_wake_word("kitt") == ""
 
 def test_database():
     test_db = os.path.join(tempfile.gettempdir(), "kitt_test.db")
@@ -14,14 +57,27 @@ def test_database():
     database.DB_PATH = test_db
 
     database.init_db()
+    assert tell_today("o que eu fiz hoje") == "Você ainda não me pediu nada!"
+    database.log_event("uai", None, False)
+    assert tell_today("o que eu fiz hoje").startswith("Hoje foram 1 pedidos")
+    os.remove(test_db)
+    database.init_db()
+
     database.log_event("oi", "greet", True)
     database.log_event("uai", None, False)
     database.log_event("uai", None, False)
-    
 
     result = database.unknown_phrases()
-    assert result == [("uai", 2)], f"Veio: {result} | Banco: {database.DB_PATH}"    
+    assert result == [("uai", 2)], f"Veio: {result} | Banco: {database.DB_PATH}"
     assert database.most_used_commands() == [("greet", 1)]
+    assert database.success_rate() == (3, 33.0)
+
+    database.log_event("modo estudo", "routine", True)
+    database.log_event("modo estudo", "routine", True)
+    assert database.favorite_hour("estudo") is None
+
+    database.log_event("Modo ESTUDO", "routine", True)
+    assert database.favorite_hour("estudo") == datetime.now().strftime("%H")
 
 all_greetings = MORNING_GREETINGS + AFTERNOON_GREETINGS + EVENING_GREETINGS
 for _ in range(20):
@@ -82,8 +138,18 @@ assert suggest_alias("abre o yotube", SITES + APPS) == ("yotube", "youtube")
 assert suggest_alias("abre o discrd", SITES + APPS) == ("discrd", "discord")
 assert suggest_alias("abre o word", SITES + APPS) is None
 
-CONTEXT["pending_suggestion"] = None
+CONTEXT["pending_action"] = None
 assert confirm("sim") == "Não tenho nada para confirmar agora."
+
+CONTEXT["pending_action"] = (lambda arg: f"fiz {arg}", "x", datetime.now())
+assert confirm("sim") == "fiz x"
+CONTEXT["pending_action"] = (lambda arg: f"fiz {arg}", "x", datetime.now() - timedelta(minutes=2))
+assert confirm("sim") == "Essa pergunta expirou. Me peça de novo."
+CONTEXT["pending_action"] = (lambda arg: "ok", "x", datetime.now())
+assert cancel("cancela") == "Ok, cancelado."
+assert confirm("sim") == "Não tenho nada para confirmar agora."
+
+assert identify("pesquise o que é isso")["name"] == "search"
 
 assert invalid_targets({"x": {"open": ["vscod", "github"]}}, {"github"}) == [("x", "vscod")]
 assert invalid_targets({"y": {"description": "sem open"}}, {"github"}) == []

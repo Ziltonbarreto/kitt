@@ -15,3 +15,11 @@ def identify(text: str) -> dict | None:
         if command["triggers"] & set(words):
             return command
     return None
+
+def strip_wake_word(text: str) -> str:
+    parts = text.split(maxsplit=1)
+    if parts:
+        first = normalize(parts[0])
+        if first and first[0] in WAKE_WORDS:
+            return parts[1] if len(parts) > 1 else ""
+    return text

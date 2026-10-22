@@ -1,10 +1,13 @@
 {
     "estudo": {
-        "description": "Abre tudo para estudar",
-        "open": ["fiap", "notion", "spotify"]
+    "description": "Abre tudo para estudar",
+    "message": "Bons estudos! Foco total, Zilton.",
+    "confirm": true,
+    "open": ["fiap", "notion", "spotify"]
     },
     "dev": {
         "description": "Abre o ambiente de programação",
+        "message": "Modo dev ativado. Que o código compile de primeira! 💻",
         "open": ["vscode", "github", "claude"]
     }
 }

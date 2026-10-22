@@ -1,5 +1,5 @@
-from interpreter import identify
-from commands import BANNER, greet, CONTEXT
+from interpreter import identify, strip_wake_word
+from commands import BANNER, greet, CONTEXT, routine_suggestion
 from logging.handlers import RotatingFileHandler
 from database import init_db, log_event
 import logging
@@ -21,11 +21,14 @@ logging.basicConfig(
 logger = logging.getLogger("main")
 
 def main() -> None:
-    logger.info("KITT")
+    logger.info("KITT iniciado")
+    init_db()
     print(BANNER)
     print("KITT: Sistemas online. Digite 'ajuda' para ver o que sei fazer ou 'sair' para encerrar.")
 
-    init_db()
+    suggestion = routine_suggestion()
+    if suggestion:
+        print("KITT:", suggestion)
 
     while True:
         try:
@@ -34,6 +37,7 @@ def main() -> None:
             print("\nKITT: Encerrando. Até mais!")
             logger.info("KITT encerrado")
             break
+        text = strip_wake_word(text)
 
         if not text:
             continue
@@ -43,8 +47,8 @@ def main() -> None:
             break
 
         command = identify(text)
-        if command is None or command["name"] != "confirm":
-            CONTEXT["pending_suggestion"] = None
+        if command is None or command["name"] not in ("confirm", "cancel"):
+            CONTEXT["pending_action"] = None
 
         if command is None:
             logger.warning(f'Não reconheceu: "{text}"')

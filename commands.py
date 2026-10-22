@@ -1,10 +1,16 @@
+import subprocess
+from datetime import datetime, timedelta
 from text_utils import normalize
-from datetime import datetime
 from urllib.parse import quote_plus
-from database import most_used_commands, unknown_phrases, success_rate, today_summary
+from database import favorite_hour, most_used_commands, unknown_phrases, success_rate, today_summary
 from difflib import get_close_matches
 from routines import load_routines, invalid_targets, find_routine, plan_routine
+from projects import load_projects, find_project
+from pathlib import Path
+import psutil
 import webbrowser
+import threading
+import winsound
 import logging
 import random
 import os
@@ -148,9 +154,182 @@ SEARCH_ENGINES = {
     },
 }
 
-CONTEXT = {"last_engine": None, "pending_suggestion": None}
+NOTES_PATH = Path(__file__).parent / "notes.txt"
+NOTE_WORDS = ["anotar", "anota", "anote"]
+
+CONTEXT = {"last_engine": None, "pending_action": None}
 
 KNOWN_ALIASES = {alias for item in SITES + APPS for alias in item["aliases"]}
+
+TIME_UNITS = {
+    "segundo": 1, "segundos": 1, "seg": 1,
+    "minuto": 60, "minutos": 60, "min": 60,
+    "hora": 3600, "horas": 3600,
+}
+
+POMODORO_FOCUS = 25 * 60
+POMODORO_CYCLES = 4
+POMODORO_STATE = {"timer": None}
+
+
+MAX_TIMER_SECONDS = 24 * 3600
+
+def bytes_to_gb(value):
+    return value / 1024 ** 3
+
+
+def pc_status(text):
+    cpu = psutil.cpu_percent(interval=0.5)
+    ram = psutil.virtual_memory()
+    disk = psutil.disk_usage("C:\\")
+
+    lines = [
+        "Status do PC:",
+        f"  CPU: {cpu:.0f}%",
+        f"  RAM: {bytes_to_gb(ram.used):.1f} de {bytes_to_gb(ram.total):.1f} GB ({ram.percent:.0f}%)",
+        f"  Disco C: {bytes_to_gb(disk.used):.0f} de {bytes_to_gb(disk.total):.0f} GB ({disk.percent:.0f}%)",
+    ]
+
+    battery = psutil.sensors_battery()
+    if battery is not None:
+        plug = "carregando 🔌" if battery.power_plugged else "na bateria 🔋"
+        lines.append(f"  Bateria: {battery.percent:.0f}% ({plug})")
+
+    if ram.percent > 90:
+        lines.append("⚠️ A memória está quase cheia. Vale fechar alguns programas.")
+    return "\n".join(lines)
+
+def pomodoro_durations(text):
+    focus = parse_duration(text) or POMODORO_FOCUS
+    return focus, max(focus // 5, 1)
+
+def schedule_pomodoro(phase, cycle, focus, pause):
+    seconds = focus if phase == "focus" else pause
+    timer = threading.Timer(seconds, pomodoro_step, args=(phase, cycle, focus, pause))
+    timer.daemon = True
+    POMODORO_STATE["timer"] = timer
+    timer.start()
+
+
+def pomodoro_step(phase, cycle, focus, pause):
+    winsound.Beep(800, 500)
+    if phase == "focus":
+        if cycle >= POMODORO_CYCLES:
+            POMODORO_STATE["timer"] = None
+            message = f"🎉 Pomodoro concluído! {POMODORO_CYCLES} ciclos de foco. Mandou bem!"
+        else:
+            message = f"🍅 Fim do foco {cycle}/{POMODORO_CYCLES}! Pausa de {format_duration(pause)}."
+            schedule_pomodoro("pause", cycle, focus, pause)
+    else:
+        message = f"☕ Fim da pausa. Foco {cycle + 1}/{POMODORO_CYCLES} começando!"
+        schedule_pomodoro("focus", cycle + 1, focus, pause)
+
+    logger.info(f"Pomodoro: {message}")
+    print(f"\nKITT: {message}")
+    print("Você: ", end="", flush=True)
+
+def start_pomodoro(text):
+    words = set(normalize(text))
+    running = POMODORO_STATE["timer"]
+
+    if words & {"para", "parar", "pare"}:
+        if running is None:
+            return "Não tem nenhum pomodoro rodando."
+        running.cancel()
+        POMODORO_STATE["timer"] = None
+        logger.info("Pomodoro interrompido")
+        return "Pomodoro parado. Descansa um pouco! 😌"
+
+    if running is not None:
+        return "Já tem um pomodoro rodando. Diga 'para o pomodoro' para parar."
+
+    focus, pause = pomodoro_durations(text)
+    schedule_pomodoro("focus", 1, focus, pause)
+    logger.info(f"Pomodoro iniciado: foco {focus}s, pausa {pause}s")
+    return f"🍅 Pomodoro iniciado! Foco 1/{POMODORO_CYCLES}: {format_duration(focus)}."
+
+
+def timer_done(label):
+    winsound.Beep(1000, 600)
+    logger.info(f"Timer concluído: {label}")
+    print(f"\nKITT: ⏰ Tempo esgotado! ({label})")
+    print("Você: ", end="", flush=True)
+
+
+def start_timer(text):
+    seconds = parse_duration(text)
+    if seconds is None:
+        return "Quanto tempo? Exemplo: 'me avisa em 10 minutos'."
+    if not 1 <= seconds <= MAX_TIMER_SECONDS:
+        return "Consigo marcar de 1 segundo até 24 horas."
+
+    label = format_duration(seconds)
+    timer = threading.Timer(seconds, timer_done, args=(label,))
+    timer.daemon = True
+    timer.start()
+    logger.info(f"Timer iniciado: {label}")
+    return f"Beleza! Te aviso em {label}."
+
+
+def parse_duration(text):
+    words = normalize(text)
+    for i, word in enumerate(words):
+        if word.isdigit() and i + 1 < len(words) and words[i + 1] in TIME_UNITS:
+            return int(word) * TIME_UNITS[words[i + 1]]
+    return None
+
+def format_duration(seconds):
+    minutes, secs = divmod(seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    parts = []
+    if hours:
+        parts.append(f"{hours}h")
+    if minutes:
+        parts.append(f"{minutes}min")
+    if secs:
+        parts.append(f"{secs}s")
+    return " ".join(parts) or "0s"
+
+def extract_note(text):
+    lower = text.lower()
+    for word in NOTE_WORDS:
+        if word in lower:
+            return text[lower.index(word) + len(word):].strip(" :")
+    return ""
+
+
+def add_note(text):
+    note = extract_note(text)
+    if not note:
+        return "O que eu anoto? Exemplo: 'anota: comprar café'."
+    with NOTES_PATH.open("a", encoding="utf-8") as file:
+        file.write(f"{datetime.now():%d/%m %H:%M} | {note}\n")
+    logger.info("Nota adicionada")
+    return "Anotado! 📝"
+
+
+def clear_notes(_):
+    NOTES_PATH.unlink(missing_ok=True)
+    logger.info("Notas apagadas")
+    return "Notas apagadas. 🧹"
+
+
+def list_notes(text):
+    if "apaga" in normalize(text) or "apagar" in normalize(text):
+        if not NOTES_PATH.exists():
+            return "Você não tem notas para apagar."
+        set_pending(clear_notes, None)
+        return "Apago TODAS as suas notas? Isso não dá para desfazer. (sim / cancela)"
+
+    if not NOTES_PATH.exists():
+        return "Você ainda não tem notas. Diga 'anota: ...' para criar uma."
+
+    lines = NOTES_PATH.read_text(encoding="utf-8").splitlines()
+    recent = lines[-10:]
+    result = ["Suas notas:"]
+    for number, line in enumerate(recent, start=len(lines) - len(recent) + 1):
+        result.append(f"  {number}. {line}")
+    return "\n".join(result)
 
 def show_help(text: str) -> str:
     lines = ["Eu sei fazer isto:"]
@@ -271,7 +450,7 @@ def open_target(text: str) -> str:
     result = suggest_alias(text, SITES + APPS)
     if result is not None:
         typed, suggestion = result
-        CONTEXT["pending_suggestion"] = suggestion
+        set_pending(open_target, f"abre o {suggestion}")
         return f"Não achei '{typed}'. Você quis dizer '{suggestion}'?"
     return "Não posso abrir isso.\n" + list_targets(text)
 
@@ -328,7 +507,7 @@ def tell_stats(text):
         return "Ainda não tenho dados. Me peça algumas coisas primeiro!"
     lines = ["Seus comandos mais usados:"]
     for command, total in rows:
-        lines.append(f"{command}: {total}")
+        lines.append(f"  {command}: {total}x")
     return "\n".join(lines)
 
 def tell_unknown(text):
@@ -337,7 +516,7 @@ def tell_unknown(text):
         return "Até agora entendi tudo o que você pediu! 😎"
     lines = ["Frases que não entendi:"]
     for phrase, total in rows:
-        lines.append(f"{phrase}: {total}x")
+        lines.append(f"  {phrase}: {total}x")
     return "\n".join(lines)
 
 def tell_success_rate(text):
@@ -349,11 +528,13 @@ def tell_success_rate(text):
 
 def tell_today(text):
     total, first, top = today_summary()
-    command, count = top
     if total == 0:
         return "Você ainda não me pediu nada!"
-    else:
-        return f"Hoje foram {total} pedidos desde as {first[11:16]}. Seu comando favorito: {command} ({count}x)"
+    summary = f"Hoje foram {total} pedidos desde as {first[11:16]}."
+    if top is None:
+        return summary
+    command, count = top
+    return f"{summary} Seu comando favorito: {command} ({count}x)."
 
 def suggest_alias(text, items):
     aliases = [alias for item in items for alias in item["aliases"]]
@@ -363,12 +544,30 @@ def suggest_alias(text, items):
             return word, matches[0]
     return None
 
+CONFIRM_TIMEOUT = timedelta(minutes=1)
+
+
+def set_pending(function, argument):
+    CONTEXT["pending_action"] = (function, argument, datetime.now())
+
+
 def confirm(text):
-    suggestion = CONTEXT["pending_suggestion"]
-    if suggestion is None:
+    action = CONTEXT["pending_action"]
+    CONTEXT["pending_action"] = None
+    if action is None:
         return "Não tenho nada para confirmar agora."
-    CONTEXT["pending_suggestion"] = None
-    return open_target(f"abre o {suggestion}")
+
+    function, argument, created_at = action
+    if datetime.now() - created_at > CONFIRM_TIMEOUT:
+        return "Essa pergunta expirou. Me peça de novo."
+    return function(argument)
+
+
+def cancel(text):
+    if CONTEXT["pending_action"] is None:
+        return "Não tem nada para cancelar."
+    CONTEXT["pending_action"] = None
+    return "Ok, cancelado."
 
 def tell_routines(text):
     routines = load_routines()
@@ -385,6 +584,24 @@ def tell_routines(text):
 
     return "\n".join(lines)
 
+MAX_WITHOUT_CONFIRM = 3
+
+
+def execute_routine(name):
+    routine = load_routines().get(name)
+    if routine is None:
+        return f"A rotina {name} não existe mais."
+
+    valid, skipped = plan_routine(routine, KNOWN_ALIASES)
+    results = [open_target(target) for target in valid]
+    for target in skipped:
+        logger.warning(f'Rotina "{name}": apelido desconhecido "{target}"')
+        results.append(f'⚠️ Pulei "{target}": não está na minha lista.')
+
+    message = routine.get("message", f"Ativando o modo {name}!")
+    logger.info(f"Rotina executada: {name}")
+    return message + "\n  " + "\n  ".join(results)
+
 def run_routine(text):
     routines = load_routines()
     if not routines:
@@ -393,24 +610,84 @@ def run_routine(text):
     name = find_routine(text, routines)
     if name is None:
         names = ", ".join(routines)
-        return f"Qual modo? Eu conheço: {names}"
+        return f"Qual modo? Eu conheço: {names}."
 
-    valid, skipped = plan_routine(routines[name], KNOWN_ALIASES)
+    valid, _ = plan_routine(routines[name], KNOWN_ALIASES)
+    if len(valid) > MAX_WITHOUT_CONFIRM or routines[name].get("confirm", False):
+        set_pending(execute_routine, name)
+        return f"O modo {name} vai abrir {len(valid)} coisas. Confirma? (sim / cancela)"
 
-    results = [open_target(target) for target in valid]
+    return execute_routine(name)
+
+def routine_suggestion():
+    now_hour = datetime.now().strftime("%H")
+    for name in load_routines():
+        if favorite_hour(name) == now_hour:
+            set_pending(execute_routine, name)    
+            return f"São {now_hour}h, horário em que você costuma ativar o modo {name}. Quer ativar? (responda 'sim')"
+    return None
+
+def work_on_project(text):
+    projects = load_projects()
+    if not projects:
+        return "Você ainda não tem projetos (ou o projects.json tem erro)."
+
+    key = find_project(text, projects)
+    if key is None:
+        names = ", ".join(project["name"] for project in projects.values())
+        return f"Qual projeto? Eu conheço: {names}."
+
+    project = projects[key]
+    results = []
+
+    folder = project.get("folder", "")
+    if os.path.isdir(folder):
+        vscode = find_app("vscode")
+        subprocess.Popen(
+            [vscode["path"], folder],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=subprocess.DETACHED_PROCESS,
+        )
+        results.append("Abrindo a pasta do projeto no VS Code")
+    else:
+        logger.warning(f'Pasta do projeto "{key}" não existe: {folder}')
+        results.append(f"⚠️ Não achei a pasta do {project['name']}.")
+
+    valid, skipped = plan_routine(project, KNOWN_ALIASES)
+    results += [open_target(target) for target in valid]
     for target in skipped:
-        logger.warning(f'Rotina "{name}": apelido desconhecido "{target}"')
         results.append(f'⚠️ Pulei "{target}": não está na minha lista.')
 
-    logger.info(f"Rotina executada: {name}")
-    return f"Ativando o modo {name}!\n " + "\n ".join(results)
+    logger.info(f"Projeto aberto: {key}")
+    message = project.get("message", f"Bora trabalhar no {project['name']}!")
+    return message + "\n  " + "\n  ".join(results)
 
 COMMANDS = [
         {
             "name": "confirm", 
-            "triggers": {"sim", "isso", "exatamente", "exato"},
+            "triggers": {"sim", "exatamente", "exato"},
             "description": "Confirma a última sugestão", 
             "function": confirm,
+        },
+        {   
+            "name": "cancel", 
+            "triggers": {"cancela", "cancelar"},
+            "description": "Cancela a última pergunta", 
+            "function": cancel,
+        },
+        {
+            "name": "timer",
+            "triggers": {"avisa", "timer", "cronometro"},
+            "description": "Avisa depois de um tempo (ex.: me avisa em 10 minutos)",
+            "function": start_timer,
+        },
+        {
+            "name": "pomodoro",
+            "triggers": {"pomodoro"},
+            "description": "Ciclos de foco e pausa (ex.: pomodoro, para o pomodoro)",
+            "function": start_pomodoro,
         },
         {
             "name": "did",
@@ -441,6 +718,18 @@ COMMANDS = [
             "triggers": {"semana"},
             "description": "diz o dia da semana",
             "function": weekday,
+        },
+        {
+            "name": "note",
+            "triggers": {"anota", "anote", "anotar"},
+            "description": "Anota algo (ex.: anota: comprar café)",
+            "function": add_note,
+        },
+        {
+            "name": "notes",
+            "triggers": {"notas"},
+            "description": "Mostra ou apaga suas notas",
+            "function": list_notes,
         },
         {
             "name": "day",
@@ -485,7 +774,7 @@ COMMANDS = [
             "function": tell_stats,
         },
         {
-            "name": "unknown",
+            "name": "missed_report",
             "triggers": {"entendeu"},
             "description": "Mostra as frases que ele não entendeu",
             "function": tell_unknown,
@@ -507,6 +796,18 @@ COMMANDS = [
             "triggers": {"modo"},
             "description": "Executa uma rotina (ex.: modo estudo)", 
             "function": run_routine,
+        },
+        {
+            "name": "project", 
+            "triggers": {"mexer", "trabalhar", "projeto"},
+            "description": "Abre um projeto (ex.: vou mexer no fiscaliza)", 
+            "function": work_on_project,
+        },
+        {
+            "name": "pc_status",
+            "triggers": {"pc", "computador", "cpu", "ram", "memoria"},
+            "description": "Mostra CPU, memória, disco e bateria",
+            "function": pc_status,
         },
         {
             "name": "open",
